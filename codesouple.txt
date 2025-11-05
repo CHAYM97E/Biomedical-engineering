@@ -1,0 +1,401 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- 1. Paramètres de la simulation ---
+nx = 20              # Nombre de cellules en x
+ny = 10              # Nombre de cellules en y (demi-tube, partie supérieure)
+L = 0.0017          # Longueur du domaine (m)
+D_initial = 0.00066  # Diamètre initial du tube (m)
+eta = 1.8e-5         # Viscosité (Pa·s)
+
+# Conditions aux limites de Pression
+P_inlet = 101375.0        # Pression à l'entrée (Pa)
+P_out = 101325.0          # Pression de sortie (Pa)
+P_ext = 101800.0          # Pression pleurale externe (Pa)
+
+# Paramètres de la loi de tube (Lambert et al., 1982)
+D_max = D_initial    # Diamètre maximum
+alpha_0 = 0.039
+alpha_1 = 0.000243
+n1 =1
+n2 = 7
+P1 = ((alpha_0*n1)/alpha_1)*98.0665
+P2 = ((-n2*(1-alpha_0))/alpha_1)*98.0665
+
+# Paramètres de convergence
+max_iterations = 50
+tolerance = 1e-3
+
+print("="*60)
+print("SIMULATION STOKES - TUBE SOUPLE AVEC DÉFORMATION")
+print("="*60)
+print(f"Domaine: L = {L:.4f} m, D_initial = {D_initial*1000:.2f} mm")
+print(f"Maillage: {nx} × {ny} (demi-tube supérieur, de y=0 à y=R)")
+print(f"Viscosité: η = {eta:.2e} Pa·s")
+print(f"Pression entrée: {P_inlet:.2f} Pa, sortie: {P_out:.2f} Pa")
+print(f"Pression externe: {P_ext:.2f} Pa")
+print(f"\nLoi de tube: α₀ = {alpha_0:.4f}, P1 = {P1:.1f} Pa, P2 = {P2:.1f} Pa")
+print(f"  Si P - P_ext < 0 → COLLAPSE (diamètre diminue)")
+print(f"  Si P - P_ext > 0 → EXPANSION (diamètre augmente)")
+print("="*60 + "\n")
+
+def compute_diameter(P, P_pl, D_max, alpha_0, P1, P2, n1, n2):
+    """
+    Calcule le diamètre D en fonction de la pression transmuralle (P - P_pl)
+    selon les lois de Lambert et al., 1982
+    """
+    P_trans = P - P_pl
+    
+    if P_trans <= 0:  # P <= P_pl (collapse)
+        term = (P_trans) / P1
+        D = D_max * np.sqrt(alpha_0 * (1 - term)**(-n1))
+    else:  # P > P_pl (expansion)
+        term = (P_trans) / P2
+        D = D_max * np.sqrt(1 - (1 - alpha_0) * (1 - term)**(-n2))
+    
+    return max(D, 0.001 * D_max)  # Éviter D = 0
+
+def solve_stokes_rigid(nx, ny, L, D, eta, P_inlet, P_out):
+    """
+    Résout les équations de Stokes pour un tube rigide
+    Retourne: u_vec, v_vec, p_vec
+    
+    NOTE: D est le DIAMÈTRE, donc on travaille sur un DEMI-RAYON
+    hy = (D/2) / ny = R / ny
+    """
+    hx = L / nx
+    hy = (D / 2.0) / ny  # CORRECTION: D/2 = Rayon, on travaille sur la moitié supérieure
+    
+    # Nombre d'inconnues
+    n_u = (nx + 1) * ny
+    n_v = nx * (ny + 1)
+    n_p = nx * ny
+    N_total = n_u + n_v + n_p
+    
+    # Fonctions d'indexation
+    def idx_u(i, j):
+        return i * ny + j
+    
+    def idx_v(i, j):
+        return n_u + i * (ny + 1) + j
+    
+    def idx_p(i, j):
+        return n_u + n_v + i * ny + j
+    
+    # Initialisation
+    A = np.zeros((N_total, N_total))
+    b = np.zeros(N_total)
+    
+    # Coefficients
+    c_eta_x = (eta * hy) / hx
+    c_eta_y = (eta * hx) / hy
+    c_p_x = 1.0 / hx
+    c_p_y = 1.0 / hy
+    
+    # --- BLOC 1: Équations de Momentum-X (u) ---
+    for i in range(nx + 1):
+        for j in range(ny):
+            row = idx_u(i, j)
+            
+            # CL Entrée: Neumann du/dx = 0
+            if i == 0:
+                A[row, idx_u(i, j)] = 1.0
+                A[row, idx_u(i + 1, j)] = -1.0
+                b[row] = 0.0
+            
+            # CL Sortie: Neumann du/dx = 0
+            elif i == nx:
+                A[row, idx_u(i, j)] = 1.0
+                A[row, idx_u(i - 1, j)] = -1.0
+                b[row] = 0.0
+            
+            # Nœuds internes
+            else:
+                # Laplacien en x
+                A[row, idx_u(i + 1, j)] = c_eta_x
+                A[row, idx_u(i - 1, j)] = c_eta_x
+                A[row, row] = -2.0 * (c_eta_x + c_eta_y)
+                
+                # Laplacien en y
+                if j == 0:  # Axe de symétrie: du/dy = 0
+                    A[row, idx_u(i, j + 1)] = c_eta_y
+                    A[row, row] += c_eta_y  # Terme fantôme (Neumann)
+                elif j == ny - 1:  # Paroi supérieure: u = 0
+                    A[row, idx_u(i, j - 1)] = c_eta_y
+                    A[row, row] -= c_eta_y  # Terme fantôme (Dirichlet)
+                else:  # Interne
+                    A[row, idx_u(i, j + 1)] = c_eta_y
+                    A[row, idx_u(i, j - 1)] = c_eta_y
+                
+                # Gradient de pression
+                A[row, idx_p(i, j)] = -hy
+                A[row, idx_p(i - 1, j)] = hy
+    
+    # --- BLOC 2: Équations de Momentum-Y (v) ---
+    for i in range(nx):
+        for j in range(ny + 1):
+            row = idx_v(i, j)
+            
+            # CL Axe de symétrie (j=0): v = 0
+            if j == 0:
+                A[row, row] = 1.0
+                b[row] = 0.0
+            
+            # CL Paroi (j=ny): v = 0
+            elif j == ny:
+                A[row, row] = 1.0
+                b[row] = 0.0
+            
+            # Nœuds internes
+            else:
+                # Laplacien en y
+                A[row, idx_v(i, j + 1)] = c_eta_y
+                A[row, idx_v(i, j - 1)] = c_eta_y
+                A[row, row] = -2.0 * (c_eta_x + c_eta_y)
+                
+                # Laplacien en x
+                if i == 0:  # Entrée: dv/dx = 0
+                    A[row, idx_v(i + 1, j)] = c_eta_x
+                    A[row, row] += c_eta_x
+                elif i == nx - 1:  # Sortie: dv/dx = 0
+                    A[row, idx_v(i - 1, j)] = c_eta_x
+                    A[row, row] += c_eta_x
+                else:  # Interne
+                    A[row, idx_v(i + 1, j)] = c_eta_x
+                    A[row, idx_v(i - 1, j)] = c_eta_x
+                
+                # Gradient de pression
+                A[row, idx_p(i, j)] = -hx
+                A[row, idx_p(i, j - 1)] = hx
+    
+    # --- BLOC 3: Équation de Continuité (p) ---
+    for i in range(nx):
+        for j in range(ny):
+            row = idx_p(i, j)
+            
+            # CL Entrée: p = P_inlet
+            if i == 0:
+                A[row, row] = 1.0
+                b[row] = P_inlet
+            
+            # CL Sortie: p = P_out
+            elif i == nx - 1:
+                A[row, row] = 1.0
+                b[row] = P_out
+            
+            # Axe de symétrie: dp/dy = 0 (condition de Neumann)
+            elif j == 0:
+                A[row, idx_p(i, j)] = 1.0
+                A[row, idx_p(i, j + 1)] = -1.0
+                b[row] = 0.0
+            
+            # Nœuds internes: div(u) = 0
+            else:
+                A[row, idx_u(i + 1, j)] = c_p_x
+                A[row, idx_u(i, j)] = -c_p_x
+                A[row, idx_v(i, j + 1)] = c_p_y
+                A[row, idx_v(i, j)] = -c_p_y
+    
+    # Résolution
+    try:
+        solution = np.linalg.solve(A, b)
+        u_vec = solution[0:n_u]
+        v_vec = solution[n_u:n_u + n_v]
+        p_vec = solution[n_u + n_v:N_total]
+        return u_vec, v_vec, p_vec
+    except np.linalg.LinAlgError:
+        print("ERREUR: Matrice singulière")
+        return None, None, None
+
+# --- Boucle itérative de déformation ---
+D_current = D_initial * np.ones(nx)  # Diamètre initial pour chaque section x
+D_history = [D_current.copy()]
+
+print("Début de la boucle itérative de déformation...\n")
+
+for iteration in range(max_iterations):
+    # Pour la résolution, on utilise le diamètre LOCAL pour chaque section
+    # Mais comme solve_stokes_rigid prend un seul D, on utilise la moyenne comme approximation
+    # IMPORTANT: Ceci est une approximation - idéalement il faudrait un maillage adaptatif
+    D_mean = np.mean(D_current)
+    
+    # Résolution avec le tube "rigide" de diamètre moyen
+    u_vec, v_vec, p_vec = solve_stokes_rigid(nx, ny, L, D_mean, eta, P_inlet, P_out)
+    
+    if u_vec is None:
+        print("Échec de la résolution. Arrêt.")
+        break
+    
+    # Extraire la pression aux centres des cellules
+    p = p_vec.reshape((nx, ny))
+    p_mean = np.mean(p, axis=1)  # Pression moyenne sur chaque section x
+    
+    # Définir x_coords pour cette itération
+    hx_iter = L / nx
+    x_coords_iter = np.linspace(hx_iter / 2, L - hx_iter / 2, nx)
+    
+    # Calculer le nouveau diamètre selon la loi de tube
+    D_new = np.zeros(nx)
+    print(f"\n--- Itération {iteration + 1}: Calcul des rayons pour TOUS les points ---")
+    for i in range(nx):
+        # CORRECTION: Utiliser D_current[i] (diamètre actuel local) au lieu de D_max
+        D_new[i] = compute_diameter(p_mean[i], P_ext, D_max, alpha_0, P1, P2, n1, n2)
+        R_new = D_new[i] / 2
+        x_pos = x_coords_iter[i]
+        P_trans = p_mean[i] - P_ext
+        print(f"  Point x[{i:2d}] = {x_pos*1000:6.2f} mm | P = {p_mean[i]:8.4f} Pa | P_trans = {P_trans:8.4f} Pa | R = {R_new*1000:6.4f} mm")
+    
+    # Calculer l'erreur relative
+    error = np.max(np.abs(D_new - D_current) / D_initial)
+    
+    print(f"Itération {iteration + 1:2d}: Erreur = {error:.6f}, D_mean = {D_mean*1000:.4f} mm")
+    
+    # Vérifier la convergence
+    if error < tolerance:
+        print(f"\n*** CONVERGENCE atteinte après {iteration + 1} itérations ***\n")
+        D_current = D_new
+        D_history.append(D_current.copy())
+        break
+    
+    # Mise à jour avec relaxation pour stabilité
+    alpha_relax = 0.2
+    D_current = alpha_relax * D_new + (1 - alpha_relax) * D_current
+    D_history.append(D_current.copy())
+
+# ######################################################################
+# --- 5. Post-traitement et Visualisation (AVEC VITESSE VERTICALE) ---
+# ######################################################################
+
+print("Simulation FSI convergée. Post-traitement...")
+
+# --- 1. Extraction des données finales ---
+D_final_mean = np.mean(D_current)
+R_profile_final = D_current / 2.0
+R_sim_mean = D_final_mean / 2.0
+
+# Re-calculer une dernière fois avec le D_mean final
+u_vec, v_vec, p_vec = solve_stokes_rigid(nx, ny, L, D_final_mean, eta, P_inlet, P_out)
+
+# Extraire les champs de la dernière solution
+n_u = (nx + 1) * ny
+n_v = nx * (ny + 1)
+N_total = n_u + n_v + (nx * ny)
+
+p = p_vec.reshape((nx, ny))
+u = u_vec.reshape((nx + 1, ny))
+v = v_vec.reshape((nx, ny + 1))
+
+# --- 2. Interpolation et Miroir ---
+
+# Interpoler u aux centres des cellules (où p est défini)
+u_centered = np.zeros((nx, ny))
+for i in range(nx):
+    for j in range(ny):
+        u_centered[i, j] = 0.5 * (u[i, j] + u[i + 1, j])
+
+# Interpoler v aux centres des cellules
+v_centered = np.zeros((nx, ny))
+for i in range(nx):
+    for j in range(ny):
+        v_centered[i, j] = 0.5 * (v[i, j] + v[i, j + 1])
+
+# Miroir pour affichage du tube complet
+p_bottom_half = np.flip(p, axis=1)
+p_full = np.concatenate((p_bottom_half, p), axis=1)
+
+u_bottom_half = np.flip(u_centered, axis=1)
+u_full = np.concatenate((u_bottom_half, u_centered), axis=1)
+
+# Pour v, on inverse le signe dans la partie inférieure (symétrie antisymétrique)
+v_bottom_half = -np.flip(v_centered, axis=1)
+v_full = np.concatenate((v_bottom_half, v_centered), axis=1)
+
+# --- 3. Création de la Grille Déformée ---
+hx = L / nx
+x_p_coords = np.linspace(hx / 2.0, L - hx / 2.0, nx)
+
+hy_final = R_sim_mean / ny
+y_p_coords_top = np.linspace(hy_final / 2.0, R_sim_mean - hy_final / 2.0, ny)
+y_p_coords_bottom = -np.flip(y_p_coords_top)
+y_p_coords_full = np.concatenate((y_p_coords_bottom, y_p_coords_top))
+
+X_calc, Y_calc = np.meshgrid(x_p_coords, y_p_coords_full)
+
+stretch_ratio = R_profile_final / R_sim_mean
+Y_phys = Y_calc * stretch_ratio[np.newaxis, :]
+X_phys = X_calc
+
+# --- 4. Préparation des données Z pour le tracé ---
+Zp = p_full.T.copy()
+Zu = u_full.T.copy()
+Zv = v_full.T.copy()
+
+# --- Figure 1: Champs de Pression, Vitesse U et Vitesse V ---
+fig1, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 14))
+fig1.suptitle(f'Simulation FSI Convergée (D_final moyen = {D_final_mean*1000:.4f} mm)', fontsize=16)
+
+# a) Champ de Pression
+cp1 = ax1.contourf(X_phys, Y_phys, Zp, levels=50, cmap='viridis')
+fig1.colorbar(cp1, ax=ax1, label='Pression (Pa)')
+ax1.plot(x_p_coords, R_profile_final, 'k-', linewidth=2, label='Paroi déformée')
+ax1.plot(x_p_coords, -R_profile_final, 'k-', linewidth=2)
+ax1.set_title('Champ de Pression (p) - Grille Mappée')
+ax1.set_xlabel('x (m)')
+ax1.set_ylabel('y (m)')
+ax1.set_aspect('auto')
+ax1.legend()
+
+# b) Champ de Vitesse Horizontale (u)
+cp2 = ax2.contourf(X_phys, Y_phys, Zu, levels=50, cmap='plasma')
+fig1.colorbar(cp2, ax=ax2, label='Vitesse u (m/s)')
+ax2.plot(x_p_coords, R_profile_final, 'k-', linewidth=2, label='Paroi déformée')
+ax2.plot(x_p_coords, -R_profile_final, 'k-', linewidth=2)
+ax2.set_title('Vitesse Horizontale (u) - Grille Mappée')
+ax2.set_xlabel('x (m)')
+ax2.set_ylabel('y (m)')
+ax2.set_aspect('auto')
+ax2.legend()
+
+# c) Champ de Vitesse Verticale (v)
+cp3 = ax3.contourf(X_phys, Y_phys, Zv, levels=50, cmap='coolwarm')
+fig1.colorbar(cp3, ax=ax3, label='Vitesse v (m/s)')
+ax3.plot(x_p_coords, R_profile_final, 'k-', linewidth=2, label='Paroi déformée')
+ax3.plot(x_p_coords, -R_profile_final, 'k-', linewidth=2)
+ax3.set_title('Vitesse Verticale (v) - Grille Mappée')
+ax3.set_xlabel('x (m)')
+ax3.set_ylabel('y (m)')
+ax3.set_aspect('auto')
+ax3.legend()
+
+fig1.tight_layout(rect=[0, 0.03, 1, 0.97])
+
+# --- Figure 2: Convergence et Géométrie Finale ---
+fig2, (ax_conv, ax_geom) = plt.subplots(2, 1, figsize=(10, 10))
+
+# a) Courbe de Convergence
+R_mean_history = [np.mean(D_array) / 2.0 for D_array in D_history]
+k = len(R_mean_history)
+
+ax_conv.plot(range(1, k + 1), R_mean_history, 'bo-')
+ax_conv.axhline(R_sim_mean, color='r', linestyle='--', label=f'Rayon final moyen = {R_sim_mean:.6f} m')
+ax_conv.set_title('Convergence du Rayon Moyen vs. Itération FSI')
+ax_conv.set_xlabel('Itération FSI')
+ax_conv.set_ylabel('Rayon moyen (m)')
+ax_conv.legend()
+ax_conv.grid(True)
+
+# b) Forme Finale du Tube
+ax_geom.plot(x_p_coords, R_profile_final, 'b-', label='Paroi supérieure')
+ax_geom.plot(x_p_coords, -R_profile_final, 'b-', label='Paroi inférieure')
+ax_geom.plot(x_p_coords, np.zeros_like(x_p_coords), 'r--', label='Axe central')
+ax_geom.set_title('Forme Finale du Tube')
+ax_geom.set_xlabel('x (m)')
+ax_geom.set_ylabel('y (m)')
+if np.max(R_profile_final) > 0:
+    ax_geom.set_ylim(bottom=-np.max(R_profile_final)*1.5, top=np.max(R_profile_final)*1.5)
+ax_geom.set_aspect('auto')
+ax_geom.legend()
+ax_geom.grid(True)
+
+fig2.tight_layout()
+plt.show()
