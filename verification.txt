@@ -7,7 +7,7 @@ L, D = 0.02, 0.005    # Longueur (2 cm) et Hauteur (5 mm) du domaine
 eta = 1.8e-5          # Viscosité de l'air
 
 # Conditions aux limites de Pression
-P_inlet = 101400     # Pression P1 à l'entrée
+P_inlet = 101326     # Pression P1 à l'entrée
 P_out = 101325        # Pression P2 à la sortie
 
 # Pas de maillage
