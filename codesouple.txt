@@ -4,19 +4,19 @@ import matplotlib.pyplot as plt
 # --- 1. Paramètres de la simulation ---
 nx = 20              # Nombre de cellules en x
 ny = 10              # Nombre de cellules en y (demi-tube, partie supérieure)
-L = 0.0017          # Longueur du domaine (m)
+L = 0.0020        # Longueur du domaine (m)
 D_initial = 0.00066  # Diamètre initial du tube (m)
 eta = 1.8e-5         # Viscosité (Pa·s)
 
 # Conditions aux limites de Pression
 P_inlet = 101375.0        # Pression à l'entrée (Pa)
 P_out = 101325.0          # Pression de sortie (Pa)
-P_ext = 100825.0          # Pression pleurale externe (Pa)
+P_ext = 100925.0          # Pression pleurale externe (Pa)
 
 # Paramètres de la loi de tube (Lambert et al., 1982)
 D_max = D_initial    # Diamètre maximum
-alpha_0 = 0.039
-alpha_1 = 0.000243
+alpha_0 = 0.045
+alpha_1 = 0.000239
 n1 =1
 n2 = 7
 P1 = ((alpha_0*n1)/alpha_1)*98.0665
@@ -310,12 +310,12 @@ u_full = np.concatenate((u_bottom_half, u_centered), axis=1)
 v_bottom_half = -np.flip(v_centered, axis=1)
 v_full = np.concatenate((v_bottom_half, v_centered), axis=1)
 
-# --- 3. Création de la Grille Déformée ---
+# --- 3. Création de la Grille Déformée (EN MILLIMÈTRES) ---
 hx = L / nx
-x_p_coords = np.linspace(hx / 2.0, L - hx / 2.0, nx)
+x_p_coords = np.linspace(hx / 2.0, L - hx / 2.0, nx) * 1000  # Conversion en mm
 
 hy_final = R_sim_mean / ny
-y_p_coords_top = np.linspace(hy_final / 2.0, R_sim_mean - hy_final / 2.0, ny)
+y_p_coords_top = np.linspace(hy_final / 2.0, R_sim_mean - hy_final / 2.0, ny) * 1000  # Conversion en mm
 y_p_coords_bottom = -np.flip(y_p_coords_top)
 y_p_coords_full = np.concatenate((y_p_coords_bottom, y_p_coords_top))
 
@@ -330,6 +330,10 @@ Zp = p_full.T.copy()
 Zu = u_full.T.copy()
 Zv = v_full.T.copy()
 
+# Conversion des profils de rayon en mm pour le tracé
+R_profile_final_mm = R_profile_final * 1000
+x_p_coords_mm = x_p_coords  # Déjà en mm
+
 # --- Figure 1: Champs de Pression, Vitesse U et Vitesse V ---
 fig1, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 14))
 fig1.suptitle(f'Simulation FSI Convergée (D_final moyen = {D_final_mean*1000:.4f} mm)', fontsize=16)
@@ -337,65 +341,89 @@ fig1.suptitle(f'Simulation FSI Convergée (D_final moyen = {D_final_mean*1000:.4
 # a) Champ de Pression
 cp1 = ax1.contourf(X_phys, Y_phys, Zp, levels=50, cmap='viridis')
 fig1.colorbar(cp1, ax=ax1, label='Pression (Pa)')
-ax1.plot(x_p_coords, R_profile_final, 'k-', linewidth=2, label='Paroi déformée')
-ax1.plot(x_p_coords, -R_profile_final, 'k-', linewidth=2)
+ax1.plot(x_p_coords_mm, R_profile_final_mm, 'k-', linewidth=2, label='Paroi déformée')
+ax1.plot(x_p_coords_mm, -R_profile_final_mm, 'k-', linewidth=2)
 ax1.set_title('Champ de Pression (p) - Grille Mappée')
-ax1.set_xlabel('x (m)')
-ax1.set_ylabel('y (m)')
+ax1.set_xlabel('x (mm)')
+ax1.set_ylabel('y (mm)')
 ax1.set_aspect('auto')
 ax1.legend()
+ax1.grid(True, alpha=0.3)
 
 # b) Champ de Vitesse Horizontale (u)
 cp2 = ax2.contourf(X_phys, Y_phys, Zu, levels=50, cmap='plasma')
 fig1.colorbar(cp2, ax=ax2, label='Vitesse u (m/s)')
-ax2.plot(x_p_coords, R_profile_final, 'k-', linewidth=2, label='Paroi déformée')
-ax2.plot(x_p_coords, -R_profile_final, 'k-', linewidth=2)
+ax2.plot(x_p_coords_mm, R_profile_final_mm, 'k-', linewidth=2, label='Paroi déformée')
+ax2.plot(x_p_coords_mm, -R_profile_final_mm, 'k-', linewidth=2)
 ax2.set_title('Vitesse Horizontale (u) - Grille Mappée')
-ax2.set_xlabel('x (m)')
-ax2.set_ylabel('y (m)')
+ax2.set_xlabel('x (mm)')
+ax2.set_ylabel('y (mm)')
 ax2.set_aspect('auto')
 ax2.legend()
+ax2.grid(True, alpha=0.3)
 
 # c) Champ de Vitesse Verticale (v)
 cp3 = ax3.contourf(X_phys, Y_phys, Zv, levels=50, cmap='coolwarm')
 fig1.colorbar(cp3, ax=ax3, label='Vitesse v (m/s)')
-ax3.plot(x_p_coords, R_profile_final, 'k-', linewidth=2, label='Paroi déformée')
-ax3.plot(x_p_coords, -R_profile_final, 'k-', linewidth=2)
+ax3.plot(x_p_coords_mm, R_profile_final_mm, 'k-', linewidth=2, label='Paroi déformée')
+ax3.plot(x_p_coords_mm, -R_profile_final_mm, 'k-', linewidth=2)
 ax3.set_title('Vitesse Verticale (v) - Grille Mappée')
-ax3.set_xlabel('x (m)')
-ax3.set_ylabel('y (m)')
+ax3.set_xlabel('x (mm)')
+ax3.set_ylabel('y (mm)')
 ax3.set_aspect('auto')
 ax3.legend()
+ax3.grid(True, alpha=0.3)
 
 fig1.tight_layout(rect=[0, 0.03, 1, 0.97])
+
+# SAUVEGARDE de la Figure 1
+fig1.savefig('figure1_champs_FSI.png', dpi=300, bbox_inches='tight')
+print("\n✓ Figure 1 sauvegardée : figure1_champs_FSI.png")
 
 # --- Figure 2: Convergence et Géométrie Finale ---
 fig2, (ax_conv, ax_geom) = plt.subplots(2, 1, figsize=(10, 10))
 
-# a) Courbe de Convergence
-R_mean_history = [np.mean(D_array) / 2.0 for D_array in D_history]
+# a) Courbe de Convergence (en mm)
+R_mean_history = [np.mean(D_array) / 2.0 * 1000 for D_array in D_history]  # Conversion en mm
 k = len(R_mean_history)
 
 ax_conv.plot(range(1, k + 1), R_mean_history, 'bo-')
-ax_conv.axhline(R_sim_mean, color='r', linestyle='--', label=f'Rayon final moyen = {R_sim_mean:.6f} m')
+ax_conv.axhline(R_sim_mean * 1000, color='r', linestyle='--', label=f'Rayon final moyen = {R_sim_mean*1000:.4f} mm')
 ax_conv.set_title('Convergence du Rayon Moyen vs. Itération FSI')
 ax_conv.set_xlabel('Itération FSI')
-ax_conv.set_ylabel('Rayon moyen (m)')
+ax_conv.set_ylabel('Rayon moyen (mm)')
 ax_conv.legend()
 ax_conv.grid(True)
 
-# b) Forme Finale du Tube
-ax_geom.plot(x_p_coords, R_profile_final, 'b-', label='Paroi supérieure')
-ax_geom.plot(x_p_coords, -R_profile_final, 'b-', label='Paroi inférieure')
-ax_geom.plot(x_p_coords, np.zeros_like(x_p_coords), 'r--', label='Axe central')
+# b) Forme Finale du Tube (en mm)
+ax_geom.plot(x_p_coords_mm, R_profile_final_mm, 'b-', label='Paroi supérieure')
+ax_geom.plot(x_p_coords_mm, -R_profile_final_mm, 'b-', label='Paroi inférieure')
+ax_geom.plot(x_p_coords_mm, np.zeros_like(x_p_coords_mm), 'r--', label='Axe central')
 ax_geom.set_title('Forme Finale du Tube')
-ax_geom.set_xlabel('x (m)')
-ax_geom.set_ylabel('y (m)')
-if np.max(R_profile_final) > 0:
-    ax_geom.set_ylim(bottom=-np.max(R_profile_final)*1.5, top=np.max(R_profile_final)*1.5)
+ax_geom.set_xlabel('x (mm)')
+ax_geom.set_ylabel('y (mm)')
+if np.max(R_profile_final_mm) > 0:
+    ax_geom.set_ylim(bottom=-np.max(R_profile_final_mm)*1.5, top=np.max(R_profile_final_mm)*1.5)
 ax_geom.set_aspect('auto')
 ax_geom.legend()
 ax_geom.grid(True)
 
 fig2.tight_layout()
+
+# SAUVEGARDE de la Figure 2
+fig2.savefig('figure2_convergence_geometrie.png', dpi=300, bbox_inches='tight')
+print("✓ Figure 2 sauvegardée : figure2_convergence_geometrie.png")
+
+print("\n" + "="*60)
+print("IMAGES SAUVEGARDÉES AVEC SUCCÈS !")
+print("="*60)
+print("Les fichiers suivants ont été créés :")
+print("  1. figure1_champs_FSI.png")
+print("  2. figure2_convergence_geometrie.png")
+print("\nPour utiliser dans Beamer LaTeX :")
+print("  \\includegraphics[width=0.85\\textwidth]{figure1_champs_FSI.png}")
+print("  \\includegraphics[width=0.85\\textwidth]{figure2_convergence_geometrie.png}")
+print("="*60 + "\n")
+
+# Afficher les figures
 plt.show()
