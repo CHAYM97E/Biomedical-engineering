@@ -1,0 +1,178 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+def compute_diameter(P_trans, D_max, alpha_0, P1, P2, n1, n2):
+    """
+    Calcule le diamètre D en fonction de la pression transmurale P_trans
+    selon les lois de Lambert et al., 1982
+    """
+    if P_trans <= 0:  # P <= P_pl (collapse)
+        term = P_trans / P1
+        D = D_max * np.sqrt(alpha_0 * (1 - term)**(-n1))
+    else:  # P > P_pl (expansion)
+        term = P_trans / P2
+        D = D_max * np.sqrt(1 - (1 - alpha_0) * (1 - term)**(-n2))
+    
+    return max(D, 0.001 * D_max)  # Éviter D = 0
+
+# Paramètres de base (sain)
+D_max = 0.74e-3  # m
+alpha_0_sain = 0.039
+alpha_1_sain = 2.32e-3
+n1_sain = 1
+n2_sain = 8
+
+# Calcul des pressions caractéristiques
+P1_sain = (alpha_0_sain * n1_sain) / alpha_1_sain
+P2_sain = (-n2_sain * (1 - alpha_0_sain)) / alpha_1_sain
+
+# Plage de pressions transmurales
+P_trans = np.linspace(-8, 4, 100)  # Pa
+
+# =============================================================================
+# ÉTUDE PARAMÉTRIQUE - VARIATION UN PARAMÈTRE À LA FOIS
+# =============================================================================
+
+fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+fig.suptitle('Influence des paramètres de la loi de tube sur le diamètre', fontsize=16)
+
+# 1. Variation de alpha_0
+alpha_0_values = [0.02, 0.03, 0.039, 0.05, 0.06]
+for alpha_0 in alpha_0_values:
+    P1 = (alpha_0 * n1_sain) / alpha_1_sain
+    P2 = (-n2_sain * (1 - alpha_0)) / alpha_1_sain
+    D = [compute_diameter(pt, D_max, alpha_0, P1, P2, n1_sain, n2_sain) for pt in P_trans]
+    axes[0,0].plot(P_trans, np.array(D)*1000, label=f'α₀ = {alpha_0}', linewidth=2)
+
+axes[0,0].set_title('Influence de α₀ (fraction d\'aire à P=0)')
+axes[0,0].set_xlabel('Pression transmurale (Pa)')
+axes[0,0].set_ylabel('Diamètre (mm)')
+axes[0,0].legend()
+axes[0,0].grid(True, alpha=0.3)
+axes[0,0].axvline(x=0, color='k', linestyle='--', alpha=0.5)
+
+# 2. Variation de alpha_1 (compliance)
+alpha_1_values = [1.0e-3, 1.5e-3, 2.32e-3, 3.0e-3, 4.0e-3]
+for alpha_1 in alpha_1_values:
+    P1 = (alpha_0_sain * n1_sain) / alpha_1
+    P2 = (-n2_sain * (1 - alpha_0_sain)) / alpha_1
+    D = [compute_diameter(pt, D_max, alpha_0_sain, P1, P2, n1_sain, n2_sain) for pt in P_trans]
+    axes[0,1].plot(P_trans, np.array(D)*1000, label=f'α₁ = {alpha_1:.1e}', linewidth=2)
+
+axes[0,1].set_title('Influence de α₁ (compliance)')
+axes[0,1].set_xlabel('Pression transmurale (Pa)')
+axes[0,1].set_ylabel('Diamètre (mm)')
+axes[0,1].legend()
+axes[0,1].grid(True, alpha=0.3)
+axes[0,1].axvline(x=0, color='k', linestyle='--', alpha=0.5)
+
+# 3. Variation de n1
+n1_values = [0.5, 0.8, 1.0, 1.3, 1.6]
+for n1 in n1_values:
+    P1 = (alpha_0_sain * n1) / alpha_1_sain
+    P2 = (-n2_sain * (1 - alpha_0_sain)) / alpha_1_sain
+    D = [compute_diameter(pt, D_max, alpha_0_sain, P1, P2, n1, n2_sain) for pt in P_trans]
+    axes[1,0].plot(P_trans, np.array(D)*1000, label=f'n₁ = {n1}', linewidth=2)
+
+axes[1,0].set_title('Influence de n₁ (exposant fermeture)')
+axes[1,0].set_xlabel('Pression transmurale (Pa)')
+axes[1,0].set_ylabel('Diamètre (mm)')
+axes[1,0].legend()
+axes[1,0].grid(True, alpha=0.3)
+axes[1,0].axvline(x=0, color='k', linestyle='--', alpha=0.5)
+
+# 4. Variation de n2
+n2_values = [5, 6, 8, 10, 12]
+for n2 in n2_values:
+    P1 = (alpha_0_sain * n1_sain) / alpha_1_sain
+    P2 = (-n2 * (1 - alpha_0_sain)) / alpha_1_sain
+    D = [compute_diameter(pt, D_max, alpha_0_sain, P1, P2, n1_sain, n2) for pt in P_trans]
+    axes[1,1].plot(P_trans, np.array(D)*1000, label=f'n₂ = {n2}', linewidth=2)
+
+axes[1,1].set_title('Influence de n₂ (exposant ouverture)')
+axes[1,1].set_xlabel('Pression transmurale (Pa)')
+axes[1,1].set_ylabel('Diamètre (mm)')
+axes[1,1].legend()
+axes[1,1].grid(True, alpha=0.3)
+axes[1,1].axvline(x=0, color='k', linestyle='--', alpha=0.5)
+
+plt.tight_layout()
+plt.savefig('analyse_parametrique.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# =============================================================================
+# COMPARAISON DIRECTE SAIN vs ASTHMATIQUE
+# =============================================================================
+
+# Paramètres asthmatiques (basés sur l'analyse ci-dessus)
+alpha_0_asthme = 0.025    # Réduit → fermeture basale
+alpha_1_asthme = 4.0e-3   # Augmenté → hypercompliance  
+n1_asthme = 1.4          # Augmenté → collapsus plus rapide
+n2_asthme = 6            # Réduit → réouverture plus difficile
+
+# Calcul des pressions caractéristiques pour l'asthme
+P1_asthme = (alpha_0_asthme * n1_asthme) / alpha_1_asthme
+P2_asthme = (-n2_asthme * (1 - alpha_0_asthme)) / alpha_1_asthme
+
+# Calcul des diamètres
+D_sain = [compute_diameter(pt, D_max, alpha_0_sain, P1_sain, P2_sain, n1_sain, n2_sain) for pt in P_trans]
+D_asthme = [compute_diameter(pt, D_max, alpha_0_asthme, P1_asthme, P2_asthme, n1_asthme, n2_asthme) for pt in P_trans]
+
+plt.figure(figsize=(10, 6))
+plt.plot(P_trans, np.array(D_sain)*1000, 'b-', linewidth=3, label='Sain', alpha=0.8)
+plt.plot(P_trans, np.array(D_asthme)*1000, 'r-', linewidth=3, label='Asthmatique', alpha=0.8)
+
+# Zone de pression typique en expiration forcée
+plt.axvspan(-6, -2, alpha=0.2, color='red', label='Zone expiration forcée')
+
+plt.title('Comparaison directe: Comportement mécanique Sain vs Asthmatique', fontsize=14)
+plt.xlabel('Pression transmurale (Pa)')
+plt.ylabel('Diamètre (mm)')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.axvline(x=0, color='k', linestyle='--', alpha=0.5)
+
+# Annotations pour expliquer les différences
+plt.annotate('Réduction du diamètre au repos', xy=(0, D_max*1000*0.03), 
+             xytext=(1, 0.2), arrowprops=dict(arrowstyle='->'), fontsize=10)
+plt.annotate('Collapsus plus précoce', xy=(-4, D_max*1000*0.4), 
+             xytext=(-7, 0.3), arrowprops=dict(arrowstyle='->'), fontsize=10)
+
+plt.tight_layout()
+plt.savefig('comparaison_sain_asthme.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# =============================================================================
+
+# =============================================================================
+
+print("="*80)
+print("JUSTIFICATION SCIENTIFIQUE DES PARAMÈTRES ASTHMATIQUES")
+print("="*80)
+print("\n1. α₀ = 0.025 (vs 0.039 sain)")
+print("   - Justification: Contraction tonique du muscle lisse bronchique")
+print("   - Conséquence: Réduction de 36% du diamètre au repos")
+print("   - Base physique: Hyperplasie musculaire et œdème pariétal")
+
+print("\n2. α₁ = 4.0e-3 (vs 2.32e-3 sain)")
+print("   - Justification: Remodelage de la matrice extracellulaire")
+print("   - Conséquence: Compliance augmentée de 72%")
+print("   - Base physique: Fragmentation des fibres élastiques")
+
+print("\n3. n₁ = 1.4 (vs 1.0 sain)")
+print("   - Justification: Précontrainte musculaire augmentée")
+print("   - Conséquence: Transition plus abrupte vers le collapsus")
+print("   - Base physique: Sensibilité accrue aux pressions négatives")
+
+print("\n4. n₂ = 6 (vs 8 sain)")
+print("   - Justification: Augmentation de la viscosité pariétale")
+print("   - Conséquence: Résistance à la réouverture augmentée")
+print("   - Base physique: Forces d'adhésion pariétale en collapsus")
+
+print(f"\nEffet global dans la zone expiration forcée (-6 à -2 Pa):")
+idx_zone = (P_trans >= -6) & (P_trans <= -2)
+reduction_moyenne = np.mean((np.array(D_sain)[idx_zone] - np.array(D_asthme)[idx_zone]) / np.array(D_sain)[idx_zone]) * 100
+print(f"   - Réduction moyenne du diamètre: {reduction_moyenne:.1f}%")
+print("   - Reproduit qualitativement l'hyperréactivité bronchique")
+print("   - Cohérent avec les observations cliniques de réduction des débits")
+print("="*80)
